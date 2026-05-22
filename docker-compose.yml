@@ -1,34 +1,7 @@
-services:
-  app:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    volumes:
-      - .:/var/www/html
-    ports:
-      - "8000:8000"
-    depends_on:
-      - db
-    environment:
-      DB_CONNECTION: mysql
-      DB_HOST: db
-      DB_PORT: 3306
-      DB_DATABASE: splitlah
-      DB_USERNAME: splitlah
-      DB_PASSWORD: splitlah
-    command: php artisan serve --host=0.0.0.0 --port=8000
-
-  db:
-    image: mariadb:11
-    environment:
-      MYSQL_DATABASE: splitlah
-      MYSQL_USER: splitlah
-      MYSQL_PASSWORD: splitlah
-      MYSQL_ROOT_PASSWORD: root
-    ports:
-      - "3307:3306"
-    volumes:
-      - splitlah_db:/var/lib/mysql
-
-volumes:
-  splitlah_db:
+environment:
+  MYSQL_ROOT_PASSWORD: ${DB_PASSWORD}
+  MYSQL_DATABASE: ${DB_DATABASE}
+  MYSQL_USER: ${DB_USERNAME}
+  MYSQL_PASSWORD: ${DB_PASSWORD}
+  APP_KEY: ${APP_KEY}
+  APP_DEBUG: ${APP_DEBUG}
