@@ -5,6 +5,7 @@ use App\Http\Controllers\DemoController;
 use App\Http\Controllers\FiuuPaymentController;
 use App\Http\Controllers\LandingController;
 use App\Http\Controllers\ManualPaymentController;
+use App\Http\Controllers\OrganizerAuthController;
 use App\Http\Controllers\ParticipantPaymentController;
 use App\Http\Controllers\PaymentLogController;
 use App\Http\Controllers\ReceiptController;
@@ -23,6 +24,11 @@ Route::post('/pay/{participantPayment}', [ParticipantPaymentController::class, '
 Route::post('/fiuu/callback', [FiuuPaymentController::class, 'callback'])->name('fiuu.callback');
 Route::get('/fiuu/return', [FiuuPaymentController::class, 'return'])->name('fiuu.return');
 
+// Organizer authentication routes
+Route::get('/organizer/login', [OrganizerAuthController::class, 'showLoginForm'])->name('organizer.login');
+Route::post('/organizer/login', [OrganizerAuthController::class, 'login'])->name('organizer.login.post');
+Route::post('/organizer/logout', [OrganizerAuthController::class, 'logout'])->name('organizer.logout');
+
 // Organizer routes (require authentication)
 Route::middleware(['auth:organizer'])->group(function () {
     // Bill CRUD
@@ -30,21 +36,22 @@ Route::middleware(['auth:organizer'])->group(function () {
     Route::post('/bills', [BillController::class, 'store'])->name('bills.store');
     Route::get('/bills/{bill}', [BillController::class, 'show'])->name('bills.show');
     Route::post('/bills/{bill}/publish', [BillController::class, 'publish'])->name('bills.publish');
-    Route::get('/bills/{bill}/summary', [BillController::class, 'summary'])->name('bills.summary');
+    Route::get('/bills/{bill}/edit', [BillController::class, 'edit'])->name('bills.edit');
+    Route::put('/bills/{bill}', [BillController::class, 'update'])->name('bills.update');
+    Route::delete('/bills/{bill}', [BillController::class, 'destroy'])->name('bills.destroy');
 
-    // Receipt management
-    Route::get('/bills/{bill}/receipt', [ReceiptController::class, 'show'])->name('bills.receipt.show');
-    Route::post('/bills/{bill}/receipt/upload', [ReceiptController::class, 'upload'])->name('bills.receipt.upload');
-    Route::post('/bills/{bill}/receipt/parse', [ReceiptController::class, 'parse'])->name('bills.receipt.parse');
-    Route::post('/bills/{bill}/receipt/items', [ReceiptController::class, 'saveItems'])->name('bills.receipt.items');
+    // Receipt
+    Route::post('/bills/{bill}/receipt', [ReceiptController::class, 'store'])->name('receipt.store');
+    Route::get('/bills/{bill}/receipt/items', [ReceiptController::class, 'items'])->name('receipt.items');
 
-    // Split management
-    Route::get('/bills/{bill}/splits', [SplitController::class, 'edit'])->name('bills.splits.edit');
-    Route::post('/bills/{bill}/splits', [SplitController::class, 'update'])->name('bills.splits.update');
+    // Splits
+    Route::get('/bills/{bill}/splits', [SplitController::class, 'index'])->name('splits.index');
+    Route::post('/bills/{bill}/splits', [SplitController::class, 'store'])->name('splits.store');
+    Route::put('/bills/{bill}/splits/{split}', [SplitController::class, 'update'])->name('splits.update');
 
     // Manual payment confirmation
-    Route::post('/manual-payment/confirm/{bill}/{participant}', [ManualPaymentController::class, 'store'])->name('manual-payment.confirm');
+    Route::post('/manual-payment/confirm', [ManualPaymentController::class, 'store'])->name('manual-payment.confirm');
 
     // Payment logs
-    Route::get('/payment-logs/{bill}', [PaymentLogController::class, 'index'])->name('payment-logs.index');
+    Route::get('/payment-logs', [PaymentLogController::class, 'index'])->name('payment-logs.index');
 });
