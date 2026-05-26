@@ -17,11 +17,8 @@ defineOptions({ layout: AppLayout });
             <p>Order: {{ log.order_id }} · Status: {{ log.status }}</p>
             <p v-if="log.tran_id">Tran: {{ log.tran_id }}</p>
             <p v-if="log.signature_valid !== null">Signature: {{ log.signature_valid ? 'valid' : 'invalid' }}</p>
+            <p v-if="log.channel" class="text-xs text-stone-600">Channel: {{ log.channel }}</p>
             <p class="text-xs text-stone-500">{{ log.received_at }}</p>
-            <details class="mt-2">
-                <summary class="cursor-pointer text-xs text-teal-700">Raw payload</summary>
-                <pre class="mt-1 overflow-auto text-xs">{{ JSON.stringify(log.payload, null, 2) }}</pre>
-            </details>
         </div>
     </div>
 </template>

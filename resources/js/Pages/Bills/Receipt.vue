@@ -3,11 +3,13 @@ import { router, useForm } from '@inertiajs/vue3';
 import { ref } from 'vue';
 import Tesseract from 'tesseract.js';
 import WizardLayout from '../../Layouts/WizardLayout.vue';
+import FlashBanner from '../../Components/FlashBanner.vue';
 
 const props = defineProps({ bill: Object, items: Array, receipt_url: String });
 
 const ocrProgress = ref(0);
 const ocrRunning = ref(false);
+const uploadBusy = ref(false);
 const previewUrl = ref(props.receipt_url);
 
 const itemsForm = useForm({
@@ -25,20 +27,32 @@ const itemsForm = useForm({
 
 async function onFile(e) {
     const file = e.target.files?.[0];
-    if (!file) return;
+    if (!file || uploadBusy.value) return;
+    uploadBusy.value = true;
     previewUrl.value = URL.createObjectURL(file);
     const fd = new FormData();
     fd.append('receipt', file);
-    router.post(`/bills/${props.bill.public_token}/receipt/upload`, fd, { forceFormData: true });
+
+    await new Promise((resolve, reject) => {
+        router.post(`/bills/${props.bill.public_token}/receipt/upload`, fd, {
+            forceFormData: true,
+            onFinish: resolve,
+            onError: reject,
+        });
+    });
 
     ocrRunning.value = true;
-    const { data } = await Tesseract.recognize(file, 'eng', {
-        logger: (m) => {
-            if (m.status === 'recognizing text') ocrProgress.value = Math.round(m.progress * 100);
-        },
-    });
-    ocrRunning.value = false;
-    router.post(`/bills/${props.bill.public_token}/receipt/parse`, { ocr_text: data.text });
+    try {
+        const { data } = await Tesseract.recognize(file, 'eng', {
+            logger: (m) => {
+                if (m.status === 'recognizing text') ocrProgress.value = Math.round(m.progress * 100);
+            },
+        });
+        router.post(`/bills/${props.bill.public_token}/receipt/parse`, { ocr_text: data.text });
+    } finally {
+        ocrRunning.value = false;
+        uploadBusy.value = false;
+    }
 }
 
 function addItem() {
@@ -58,23 +72,32 @@ const confidenceLabel = {
 
 <template>
     <WizardLayout :step="3">
+        <template #flash>
+            <FlashBanner :errors="itemsForm.errors" class="mb-4" />
+        </template>
         <h1 class="text-xl font-bold">Review receipt</h1>
         <p v-if="bill.ocr_confidence" class="mt-2 text-sm text-amber-700">
             {{ confidenceLabel[bill.ocr_confidence] || bill.ocr_confidence }}
         </p>
 
         <div class="mt-4 rounded-xl border border-dashed border-stone-300 bg-white p-4 text-center">
-            <input type="file" accept="image/*" capture="environment" class="text-sm" @change="onFile" />
+            <label class="block text-sm font-medium text-stone-700">
+                Receipt photo
+                <input type="file" accept="image/*" capture="environment" class="mt-1 text-sm" :disabled="uploadBusy || ocrRunning" @change="onFile" />
+            </label>
             <img v-if="previewUrl" :src="previewUrl" class="mx-auto mt-3 max-h-48 rounded-lg" alt="Receipt" />
-            <p v-if="ocrRunning" class="mt-2 text-sm text-teal-700">Scanning… {{ ocrProgress }}%</p>
+            <p v-if="ocrRunning" class="mt-2 text-sm text-teal-700" aria-live="polite">Scanning… {{ ocrProgress }}%</p>
         </div>
 
         <form class="mt-6 space-y-3" @submit.prevent="saveItems">
             <input v-model="itemsForm.merchant_name" placeholder="Merchant" class="w-full rounded-lg border px-3 py-2 text-sm" />
             <input v-model="itemsForm.receipt_date" type="date" class="w-full rounded-lg border px-3 py-2 text-sm" />
             <div class="grid grid-cols-2 gap-2 text-sm">
-                <input v-model.number="itemsForm.tax_cents" type="number" placeholder="Tax (cents)" class="rounded-lg border px-2 py-2" />
-                <input v-model.number="itemsForm.total_cents" type="number" placeholder="Total (cents)" class="rounded-lg border px-2 py-2" required />
+                <input v-model.number="itemsForm.subtotal_cents" type="number" placeholder="Subtotal (sen)" class="rounded-lg border px-2 py-2" />
+                <input v-model.number="itemsForm.tax_cents" type="number" placeholder="Tax (sen)" class="rounded-lg border px-2 py-2" />
+                <input v-model.number="itemsForm.service_charge_cents" type="number" placeholder="Service (sen)" class="rounded-lg border px-2 py-2" />
+                <input v-model.number="itemsForm.rounding_cents" type="number" placeholder="Rounding (sen)" class="rounded-lg border px-2 py-2" />
+                <input v-model.number="itemsForm.total_cents" type="number" placeholder="Total (sen)" class="col-span-2 rounded-lg border px-2 py-2" required />
             </div>
 
             <div v-for="(item, i) in itemsForm.items" :key="i" class="flex gap-2">

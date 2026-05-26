@@ -75,4 +75,45 @@ class FiuuPaymentTest extends TestCase
 
         $this->assertEquals('unpaid', $participant->fresh()->status);
     }
+
+    public function test_valid_skey_with_wrong_amount_does_not_mark_paid(): void
+    {
+        config([
+            'services.fiuu.merchant_id' => 'SB_TEST',
+            'services.fiuu.secret_key' => 'secret',
+            'services.fiuu.verify_key' => 'verify',
+        ]);
+
+        $bill = Bill::create([
+            'title' => 'Test',
+            'organizer_name' => 'Org',
+            'total_cents' => 1000,
+            'status' => 'published',
+        ]);
+        $participant = $bill->participants()->create(['name' => 'Ali', 'amount_cents' => 1000]);
+        $pr = PaymentRequest::create([
+            'participant_id' => $participant->id,
+            'bill_id' => $bill->id,
+            'order_id' => 'SLHWRONG001',
+            'amount_cents' => 1000,
+            'status' => 'pending',
+        ]);
+
+        $payload = [
+            'tranID' => 'T2',
+            'orderid' => 'SLHWRONG001',
+            'status' => '00',
+            'domain' => 'SB_TEST',
+            'amount' => '5.00',
+            'currency' => 'MYR',
+            'appcode' => '',
+            'paydate' => '2026-05-21 11:00:00',
+        ];
+        $pre = md5('T2'.'SLHWRONG001'.'00'.'SB_TEST'.'5.00'.'MYR');
+        $payload['skey'] = md5('2026-05-21 11:00:00'.'SB_TEST'.$pre.''.'secret');
+
+        $this->post('/payments/fiuu/notify', $payload)->assertOk();
+        $this->assertEquals('pending', $pr->fresh()->status);
+        $this->assertEquals('unpaid', $participant->fresh()->status);
+    }
 }

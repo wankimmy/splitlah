@@ -11,6 +11,7 @@ import { Link } from '@inertiajs/vue3';
             </div>
         </header>
         <main class="mx-auto max-w-lg px-4 py-6 pb-24">
+            <slot name="flash" />
             <slot />
         </main>
     </div>

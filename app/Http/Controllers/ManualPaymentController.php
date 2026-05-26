@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\Bill;
 use App\Models\Participant;
 use App\Models\PaymentRequest;
 use App\Services\Audit\AuditLogService;
@@ -12,8 +13,12 @@ class ManualPaymentController extends Controller
 {
     public function __construct(private AuditLogService $audit) {}
 
-    public function store(Participant $participant, Request $request): RedirectResponse
+    public function store(Bill $bill, Participant $participant, Request $request): RedirectResponse
     {
+        if ($participant->bill_id !== $bill->id) {
+            abort(404);
+        }
+
         if ($participant->isPaid()) {
             return back()->with('error', 'Participant already paid.');
         }

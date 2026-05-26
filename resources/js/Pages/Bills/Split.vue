@@ -2,6 +2,7 @@
 import { useForm } from '@inertiajs/vue3';
 import { computed } from 'vue';
 import WizardLayout from '../../Layouts/WizardLayout.vue';
+import FlashBanner from '../../Components/FlashBanner.vue';
 
 const props = defineProps({ bill: Object, participants: Array, items: Array });
 
@@ -28,6 +29,9 @@ function submit(publish = false) {
 
 <template>
     <WizardLayout :step="4">
+        <template #flash>
+            <FlashBanner :errors="form.errors" class="mb-4" />
+        </template>
         <h1 class="text-xl font-bold">Split bill</h1>
         <p class="text-sm text-stone-600">Total: {{ bill.total }}</p>
 
@@ -45,10 +49,10 @@ function submit(publish = false) {
         </div>
 
         <div v-if="form.split_mode === 'manual'" class="mt-4 space-y-2">
-            <p class="text-sm">Remaining: RM{{ (remaining / 100).toFixed(2) }}</p>
+            <p class="text-sm">Remaining: RM{{ (remaining / 100).toFixed(2) }} (enter amounts in sen)</p>
             <div v-for="p in participants" :key="p.id" class="flex items-center justify-between rounded-lg border bg-white p-3">
                 <span>{{ p.name }}</span>
-                <input v-model.number="form.manual_amounts[p.id]" type="number" class="w-28 rounded border px-2 py-1 text-sm" />
+                <input v-model.number="form.manual_amounts[p.id]" type="number" class="w-28 rounded border px-2 py-1 text-sm" aria-label="Amount in sen" />
             </div>
         </div>
 
@@ -84,8 +88,10 @@ function submit(publish = false) {
 
         <div class="fixed bottom-0 left-0 right-0 border-t bg-white p-4">
             <div class="mx-auto flex max-w-lg gap-2">
-                <button type="button" class="flex-1 rounded-xl border py-3 text-sm font-medium" @click="submit(false)">Save split</button>
-                <button type="button" class="flex-1 rounded-xl bg-teal-600 py-3 text-sm font-semibold text-white" @click="submit(true)">
+                <button type="button" class="flex-1 rounded-xl border py-3 text-sm font-medium disabled:opacity-50" :disabled="form.processing" @click="submit(false)">
+                    Save split
+                </button>
+                <button type="button" class="flex-1 rounded-xl bg-teal-600 py-3 text-sm font-semibold text-white disabled:opacity-50" :disabled="form.processing" @click="submit(true)">
                     Publish
                 </button>
             </div>

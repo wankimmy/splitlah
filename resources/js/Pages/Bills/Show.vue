@@ -4,6 +4,8 @@ import { computed } from 'vue';
 import AppLayout from '../../Layouts/AppLayout.vue';
 import StatusBadge from '../../Components/StatusBadge.vue';
 import CopyButton from '../../Components/CopyButton.vue';
+import FlashBanner from '../../Components/FlashBanner.vue';
+import MoneyText from '../../Components/MoneyText.vue';
 
 const props = defineProps({ bill: Object, participants: Array, filter: String, timeline: Array, summary_text: String });
 defineOptions({ layout: AppLayout });
@@ -21,16 +23,23 @@ function setFilter(f) {
 }
 
 function markPaid(token) {
-    manualForm.post(`/participants/${token}/manual-paid`, { preserveScroll: true });
+    if (!confirm('Mark this participant as paid manually?')) {
+        return;
+    }
+    manualForm.post(`/bills/${props.bill.public_token}/participants/${token}/manual-paid`, { preserveScroll: true });
 }
 
 function remindUnpaid() {
-    unpaid.value.forEach((p) => window.open(p.whatsapp_url?.replace('?text=', '?text=') || `https://wa.me/?text=${encodeURIComponent(p.share_message)}`, '_blank'));
+    unpaid.value.forEach((p) => {
+        const url = p.whatsapp_url || `https://wa.me/?text=${encodeURIComponent(p.share_message)}`;
+        window.open(url, '_blank');
+    });
 }
 </script>
 
 <template>
     <div class="space-y-4">
+        <FlashBanner class="mb-2" />
         <div class="rounded-2xl border border-stone-200 bg-white p-5 shadow-sm">
             <h1 class="text-xl font-bold">{{ bill.title }}</h1>
             <p class="text-sm text-stone-600">{{ bill.organizer_name }} · {{ bill.merchant_name || 'No merchant' }}</p>
@@ -66,7 +75,7 @@ function remindUnpaid() {
             <div class="flex items-start justify-between">
                 <div>
                     <p class="font-semibold">{{ p.name }}</p>
-                    <p class="text-lg font-bold">{{ p.amount }}</p>
+                    <MoneyText :amount="p.amount" large />
                 </div>
                 <StatusBadge :status="p.status" />
             </div>

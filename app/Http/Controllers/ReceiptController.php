@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Controllers\Concerns\GuardsPublishedBill;
 use App\Models\Bill;
 use App\Models\BillItem;
 use App\Services\Audit\AuditLogService;
@@ -14,6 +15,8 @@ use Inertia\Response;
 
 class ReceiptController extends Controller
 {
+    use GuardsPublishedBill;
+
     public function __construct(
         private ReceiptParserService $parser,
         private AuditLogService $audit,
@@ -40,6 +43,10 @@ class ReceiptController extends Controller
 
     public function upload(Bill $bill, Request $request): RedirectResponse
     {
+        if ($redirect = $this->rejectIfPublished($bill)) {
+            return $redirect;
+        }
+
         $request->validate(['receipt' => 'required|image|max:5120']);
         $path = $request->file('receipt')->store('receipts', 'public');
         $bill->update(['receipt_image_path' => $path]);
@@ -50,6 +57,10 @@ class ReceiptController extends Controller
 
     public function parse(Bill $bill, Request $request): RedirectResponse
     {
+        if ($redirect = $this->rejectIfPublished($bill)) {
+            return $redirect;
+        }
+
         $request->validate(['ocr_text' => 'required|string']);
         $parsed = $this->parser->parse($request->input('ocr_text'));
         $bill->update([
@@ -81,6 +92,10 @@ class ReceiptController extends Controller
 
     public function saveItems(Bill $bill, Request $request): RedirectResponse
     {
+        if ($redirect = $this->rejectIfPublished($bill)) {
+            return $redirect;
+        }
+
         $data = $request->validate([
             'merchant_name' => 'nullable|string|max:120',
             'receipt_date' => 'nullable|date',

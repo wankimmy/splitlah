@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Controllers\Concerns\GuardsPublishedBill;
 use App\Models\Bill;
 use App\Models\ItemAssignment;
 use App\Services\Audit\AuditLogService;
@@ -14,13 +15,18 @@ use Inertia\Response;
 
 class SplitController extends Controller
 {
+    use GuardsPublishedBill;
     public function __construct(
         private SplitCalculatorService $splitter,
         private AuditLogService $audit,
     ) {}
 
-    public function edit(Bill $bill): Response
+    public function edit(Bill $bill): Response|RedirectResponse
     {
+        if ($redirect = $this->rejectIfPublished($bill)) {
+            return $redirect;
+        }
+
         $bill->load(['participants', 'items.assignments']);
 
         return Inertia::render('Bills/Split', [
@@ -51,6 +57,10 @@ class SplitController extends Controller
 
     public function update(Bill $bill, Request $request): RedirectResponse
     {
+        if ($redirect = $this->rejectIfPublished($bill)) {
+            return $redirect;
+        }
+
         $data = $request->validate([
             'split_mode' => 'required|in:equal,manual,itemized,percentage',
             'tax_distribution' => 'nullable|in:equal,proportional',
@@ -86,15 +96,34 @@ class SplitController extends Controller
             }
         }
 
+        if ($data['split_mode'] === 'itemized' && ! empty($data['assignments'])) {
+            $allowedItemIds = $bill->items()->pluck('id')->map(fn ($id) => (int) $id)->all();
+            $allowedParticipantIds = $bill->participants()->pluck('id')->map(fn ($id) => (int) $id)->all();
+            foreach ($data['assignments'] as $itemId => $participantIds) {
+                if (! in_array((int) $itemId, $allowedItemIds, true)) {
+                    return back()->with('error', 'Invalid item assignment.');
+                }
+                foreach ($participantIds as $pid) {
+                    if (! in_array((int) $pid, $allowedParticipantIds, true)) {
+                        return back()->with('error', 'Invalid participant assignment.');
+                    }
+                }
+            }
+        }
+
         foreach ($results as $participantId => $row) {
-            $bill->participants()->where('id', $participantId)->update([
+            $update = [
                 'amount_cents' => $row['amount_cents'],
                 'subtotal_cents' => $row['subtotal_cents'],
                 'tax_share_cents' => $row['tax_share_cents'],
                 'service_charge_share_cents' => $row['service_charge_share_cents'],
                 'rounding_share_cents' => $row['rounding_share_cents'],
                 'breakdown_json' => $row['breakdown_json'],
-            ]);
+            ];
+            if ($data['split_mode'] === 'percentage') {
+                $update['percentage_share'] = $data['percentages'][$participantId] ?? null;
+            }
+            $bill->participants()->where('id', $participantId)->update($update);
         }
 
         if ($data['split_mode'] === 'itemized' && ! empty($data['assignments'])) {

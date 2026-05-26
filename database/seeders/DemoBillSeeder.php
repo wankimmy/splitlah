@@ -41,6 +41,9 @@ TEXT;
             'ocr_raw_text' => $ocr,
             'ocr_confidence' => 'high',
         ]);
+        $bill->forceFill([
+            'public_token' => config('splitlah.demo_bill_token', 'demo-friday-nasi-kandar'),
+        ])->save();
 
         $items = [
             ['name' => 'Nasi Kandar Ayam Madu', 'cents' => 1890, 'fee' => false],

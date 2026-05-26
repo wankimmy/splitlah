@@ -12,7 +12,7 @@ class Bill extends Model
     use HasFactory;
 
     protected $fillable = [
-        'public_token', 'organizer_name', 'organizer_email', 'title', 'description',
+        'organizer_name', 'organizer_email', 'title', 'description',
         'due_date', 'currency', 'merchant_name', 'receipt_date',
         'subtotal_cents', 'tax_cents', 'service_charge_cents', 'rounding_cents', 'total_cents',
         'split_mode', 'tax_distribution', 'rounding_mode', 'status',

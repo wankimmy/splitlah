@@ -7,6 +7,7 @@ use App\Models\PaymentNotification;
 use App\Models\PaymentRequest;
 use App\Services\Audit\AuditLogService;
 use App\Services\Fiuu\FiuuGateway;
+use App\Support\Money;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
 use Illuminate\Support\Facades\DB;
@@ -93,6 +94,20 @@ class FiuuPaymentController extends Controller
         ]);
 
         if (! $paymentRequest || ! $valid) {
+            return response('OK');
+        }
+
+        $expectedAmount = Money::toDecimal($paymentRequest->amount_cents);
+        $expectedCurrency = strtoupper($paymentRequest->currency ?? 'MYR');
+        if (($payload['amount'] ?? '') !== $expectedAmount
+            || strtoupper((string) ($payload['currency'] ?? '')) !== $expectedCurrency) {
+            $this->audit->log('fiuu_amount_mismatch', $paymentRequest->bill, $paymentRequest->participant, $paymentRequest, metadata: [
+                'expected_amount' => $expectedAmount,
+                'received_amount' => $payload['amount'] ?? null,
+                'expected_currency' => $expectedCurrency,
+                'received_currency' => $payload['currency'] ?? null,
+            ]);
+
             return response('OK');
         }
 

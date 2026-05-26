@@ -21,6 +21,7 @@ const steps = ['Details', 'Receipt', 'Review', 'Split', 'Share'];
             </div>
         </header>
         <main class="mx-auto max-w-lg px-4 py-6 pb-28">
+            <slot name="flash" />
             <slot />
         </main>
     </div>
