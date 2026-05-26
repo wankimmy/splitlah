@@ -11,30 +11,40 @@ use App\Http\Controllers\ReceiptController;
 use App\Http\Controllers\SplitController;
 use Illuminate\Support\Facades\Route;
 
+// Public routes
 Route::get('/', LandingController::class)->name('home');
 Route::get('/demo', DemoController::class)->name('demo');
 
-Route::get('/bills/create', [BillController::class, 'create'])->name('bills.create');
-Route::post('/bills', [BillController::class, 'store'])->name('bills.store');
-Route::get('/bills/{bill}', [BillController::class, 'show'])->name('bills.show');
-Route::post('/bills/{bill}/publish', [BillController::class, 'publish'])->name('bills.publish');
-Route::get('/bills/{bill}/summary', [BillController::class, 'summary'])->name('bills.summary');
+// Participant payment (public, token-based)
+Route::get('/pay/{participantPayment}', [ParticipantPaymentController::class, 'show'])->name('pay.show');
+Route::post('/pay/{participantPayment}', [ParticipantPaymentController::class, 'pay'])->name('pay.process');
 
-Route::get('/bills/{bill}/receipt', [ReceiptController::class, 'show'])->name('bills.receipt.show');
-Route::post('/bills/{bill}/receipt/upload', [ReceiptController::class, 'upload'])->name('bills.receipt.upload');
-Route::post('/bills/{bill}/receipt/parse', [ReceiptController::class, 'parse'])->name('bills.receipt.parse');
-Route::post('/bills/{bill}/receipt/items', [ReceiptController::class, 'saveItems'])->name('bills.receipt.items');
+// Fiuu callbacks (public, webhook)
+Route::post('/fiuu/callback', [FiuuPaymentController::class, 'callback'])->name('fiuu.callback');
+Route::get('/fiuu/return', [FiuuPaymentController::class, 'return'])->name('fiuu.return');
 
-Route::get('/bills/{bill}/split', [SplitController::class, 'edit'])->name('bills.split.edit');
-Route::post('/bills/{bill}/split', [SplitController::class, 'update'])->name('bills.split.update');
+// Organizer routes (require authentication)
+Route::middleware(['auth:organizer'])->group(function () {
+    // Bill CRUD
+    Route::get('/bills/create', [BillController::class, 'create'])->name('bills.create');
+    Route::post('/bills', [BillController::class, 'store'])->name('bills.store');
+    Route::get('/bills/{bill}', [BillController::class, 'show'])->name('bills.show');
+    Route::post('/bills/{bill}/publish', [BillController::class, 'publish'])->name('bills.publish');
+    Route::get('/bills/{bill}/summary', [BillController::class, 'summary'])->name('bills.summary');
 
-Route::get('/bills/{bill}/payments', [PaymentLogController::class, 'index'])->name('bills.payments.index');
+    // Receipt management
+    Route::get('/bills/{bill}/receipt', [ReceiptController::class, 'show'])->name('bills.receipt.show');
+    Route::post('/bills/{bill}/receipt/upload', [ReceiptController::class, 'upload'])->name('bills.receipt.upload');
+    Route::post('/bills/{bill}/receipt/parse', [ReceiptController::class, 'parse'])->name('bills.receipt.parse');
+    Route::post('/bills/{bill}/receipt/items', [ReceiptController::class, 'saveItems'])->name('bills.receipt.items');
 
-Route::get('/pay/{token}', [ParticipantPaymentController::class, 'show'])->name('participants.pay');
+    // Split management
+    Route::get('/bills/{bill}/splits', [SplitController::class, 'edit'])->name('bills.splits.edit');
+    Route::post('/bills/{bill}/splits', [SplitController::class, 'update'])->name('bills.splits.update');
 
-Route::post('/bills/{bill}/participants/{participant:token}/manual-paid', [ManualPaymentController::class, 'store'])->name('participants.manual-paid');
+    // Manual payment confirmation
+    Route::post('/manual-payment/confirm/{bill}/{participant}', [ManualPaymentController::class, 'store'])->name('manual-payment.confirm');
 
-Route::post('/payments/fiuu/create/{participant:token}', [FiuuPaymentController::class, 'create'])->name('payments.fiuu.create');
-Route::match(['GET', 'POST'], '/payments/fiuu/return', [FiuuPaymentController::class, 'return'])->name('payments.fiuu.return');
-Route::post('/payments/fiuu/notify', [FiuuPaymentController::class, 'notify'])->name('payments.fiuu.notify');
-Route::match(['GET', 'POST'], '/payments/fiuu/cancel', [FiuuPaymentController::class, 'cancel'])->name('payments.fiuu.cancel');
+    // Payment logs
+    Route::get('/payment-logs/{bill}', [PaymentLogController::class, 'index'])->name('payment-logs.index');
+});

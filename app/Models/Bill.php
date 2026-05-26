@@ -17,6 +17,7 @@ class Bill extends Model
         'subtotal_cents', 'tax_cents', 'service_charge_cents', 'rounding_cents', 'total_cents',
         'split_mode', 'tax_distribution', 'rounding_mode', 'status',
         'receipt_image_path', 'ocr_raw_text', 'ocr_parsed_json', 'ocr_confidence', 'published_at',
+        'organizer_token',
     ];
 
     protected function casts(): array

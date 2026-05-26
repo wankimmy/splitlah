@@ -44,107 +44,91 @@ class FiuuPaymentController extends Controller
         $participant->update(['status' => 'pending']);
         $this->audit->log('payment_started', $participant->bill, $participant, $paymentRequest);
 
-        $action = $this->fiuu->paymentActionUrl();
-        $fields = '';
-        foreach ($payload as $key => $value) {
-            $fields .= '<input type="hidden" name="'.e($key).'" value="'.e($value).'">';
+        $action = $this->fiuu->getHostedUrl();
+
+        return Inertia::render('Payment/Fiuu', [
+            'action' => $action,
+            'payload' => $payload,
+        ]);
+    }
+
+    public function callback(Request $request): Response
+    {
+        // Verify webhook signature
+        if (!$this->fiuu->verifySkey($request->all())) {
+            Log::warning('Fiuu callback: invalid signature', ['payload' => $request->all()]);
+            return response('Invalid signature', 403);
         }
 
-        $html = '<!DOCTYPE html><html><body onload="document.forms[0].submit()">'
-            .'<form method="POST" action="'.e($action).'">'.$fields
-            .'<p>Redirecting to Fiuu...</p></form></body></html>';
-
-        return response($html)->header('Content-Type', 'text/html');
-    }
-
-    public function return(Request $request)
-    {
-        $orderId = $request->input('orderid');
-        $paymentRequest = PaymentRequest::where('order_id', $orderId)->first();
-
-        return Inertia::render('Payments/Return', [
-            'order_id' => $orderId,
-            'status' => $paymentRequest?->status ?? 'pending',
-            'message' => 'Payment submitted. We are waiting for confirmation from Fiuu.',
-        ]);
-    }
-
-    public function cancel(Request $request)
-    {
-        return Inertia::render('Payments/Cancel', [
-            'order_id' => $request->input('orderid'),
-        ]);
-    }
-
-    public function notify(Request $request): Response
-    {
         $payload = $request->all();
-        $valid = $this->fiuu->verifySkey($payload);
-        $orderId = (string) ($payload['orderid'] ?? '');
+        $orderId = $payload['orderid'] ?? null;
+        $tranID = $payload['tranID'] ?? null;
+        $status = $payload['status'] ?? null;
+        $amount = $payload['amount'] ?? null;
+
+        if (!$orderId || !$tranID || !$status) {
+            return response('Missing required fields', 400);
+        }
+
         $paymentRequest = PaymentRequest::where('order_id', $orderId)->first();
-
-        PaymentNotification::create([
-            'payment_request_id' => $paymentRequest?->id,
-            'order_id' => $orderId,
-            'tran_id' => $payload['tranID'] ?? null,
-            'status' => $payload['status'] ?? null,
-            'is_valid_signature' => $valid,
-            'payload_json' => $payload,
-            'received_at' => now(),
-        ]);
-
-        if (! $paymentRequest || ! $valid) {
-            return response('OK');
+        if (!$paymentRequest) {
+            return response('Order not found', 404);
         }
 
-        $expectedAmount = Money::toDecimal($paymentRequest->amount_cents);
-        $expectedCurrency = strtoupper($paymentRequest->currency ?? 'MYR');
-        if (($payload['amount'] ?? '') !== $expectedAmount
-            || strtoupper((string) ($payload['currency'] ?? '')) !== $expectedCurrency) {
-            $this->audit->log('fiuu_amount_mismatch', $paymentRequest->bill, $paymentRequest->participant, $paymentRequest, metadata: [
-                'expected_amount' => $expectedAmount,
-                'received_amount' => $payload['amount'] ?? null,
-                'expected_currency' => $expectedCurrency,
-                'received_currency' => $payload['currency'] ?? null,
-            ]);
-
-            return response('OK');
+        // Idempotency: check if notification already processed
+        $existing = PaymentNotification::where('order_id', $orderId)
+            ->where('tran_id', $tranID)
+            ->exists();
+        if ($existing) {
+            return response('OK'); // already processed
         }
 
-        $mapped = $this->fiuu->mapStatus((string) ($payload['status'] ?? ''));
-
-        DB::transaction(function () use ($paymentRequest, $payload, $mapped) {
-            $paymentRequest->refresh();
-            if ($paymentRequest->status === 'paid') {
-                return;
-            }
-
-            $paymentRequest->update([
-                'response_payload_json' => $payload,
-                'fiuu_tran_id' => $payload['tranID'] ?? null,
-                'fiuu_channel' => $payload['channel'] ?? null,
-                'fiuu_appcode' => $payload['appcode'] ?? null,
-                'fiuu_paydate' => $payload['paydate'] ?? null,
+        DB::transaction(function () use ($paymentRequest, $payload, $orderId, $tranID, $status, $amount) {
+            $isValidSignature = true; // already verified above
+            PaymentNotification::create([
+                'payment_request_id' => $paymentRequest->id,
+                'order_id' => $orderId,
+                'tran_id' => $tranID,
+                'status' => $status,
+                'amount' => $amount,
+                'payload_json' => $payload,
+                'is_valid_signature' => $isValidSignature,
+                'received_at' => now(),
             ]);
 
-            $participant = $paymentRequest->participant;
-
-            if ($mapped === 'paid') {
-                $paymentRequest->update(['status' => 'paid', 'paid_at' => now()]);
-                $participant->update(['status' => 'paid', 'paid_at' => now()]);
-                $this->audit->log('payment_paid', $paymentRequest->bill, $participant, $paymentRequest, metadata: ['provider' => 'fiuu']);
-            } elseif ($mapped === 'failed') {
-                $paymentRequest->update(['status' => 'failed']);
-                $participant->update(['status' => 'failed']);
-                $this->audit->log('payment_failed', $paymentRequest->bill, $participant, $paymentRequest);
+            if ($status === '00') { // success
+                $paymentRequest->update([
+                    'status' => 'paid',
+                    'fiuu_tran_id' => $tranID,
+                    'fiuu_channel' => $payload['channel'] ?? null,
+                    'paid_at' => now(),
+                ]);
+                $paymentRequest->participant->update(['status' => 'paid', 'paid_at' => now()]);
+                $this->audit->log('payment_completed', $paymentRequest->bill, $paymentRequest->participant, $paymentRequest);
             } else {
-                $paymentRequest->update(['status' => 'pending']);
-                $participant->update(['status' => 'pending']);
+                $paymentRequest->update(['status' => 'failed']);
+                $paymentRequest->participant->update(['status' => 'failed']);
+                $this->audit->log('payment_failed', $paymentRequest->bill, $paymentRequest->participant, $paymentRequest);
             }
-
-            $this->audit->log('fiuu_notify_received', $paymentRequest->bill, $participant, $paymentRequest);
         });
 
         return response('OK');
+    }
+
+    public function return(Request $request): Response
+    {
+        $orderId = $request->query('orderid');
+        $paymentRequest = PaymentRequest::where('order_id', $orderId)->first();
+        if (!$paymentRequest) {
+            return redirect()->route('home')->with('error', 'Payment not found.');
+        }
+
+        return Inertia::render('Payment/Result', [
+            'status' => $paymentRequest->status,
+            'order_id' => $orderId,
+            'amount' => Money::format($paymentRequest->amount_cents),
+        ]);
+    }
+}
     }
 }

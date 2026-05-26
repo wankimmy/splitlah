@@ -24,6 +24,8 @@ class ReceiptController extends Controller
 
     public function show(Bill $bill): Response
     {
+        $this->authorizeOrganizer($bill);
+
         $bill->load('items');
 
         return Inertia::render('Bills/Receipt', [
@@ -43,11 +45,16 @@ class ReceiptController extends Controller
 
     public function upload(Bill $bill, Request $request): RedirectResponse
     {
+        $this->authorizeOrganizer($bill);
+
         if ($redirect = $this->rejectIfPublished($bill)) {
             return $redirect;
         }
 
-        $request->validate(['receipt' => 'required|image|max:5120']);
+        $request->validate([
+            'receipt' => 'required|file|mimes:jpeg,png,webp|max:10240',
+        ]);
+
         $path = $request->file('receipt')->store('receipts', 'public');
         $bill->update(['receipt_image_path' => $path]);
         $this->audit->log('receipt_uploaded', $bill);
@@ -55,66 +62,87 @@ class ReceiptController extends Controller
         return back()->with('success', 'Receipt uploaded.');
     }
 
-    public function parse(Bill $bill, Request $request): RedirectResponse
+    public function parse(Bill $bill): RedirectResponse
     {
+        $this->authorizeOrganizer($bill);
+
         if ($redirect = $this->rejectIfPublished($bill)) {
             return $redirect;
         }
 
-        $request->validate(['ocr_text' => 'required|string']);
-        $parsed = $this->parser->parse($request->input('ocr_text'));
-        $bill->update([
-            'ocr_raw_text' => $request->input('ocr_text'),
-            'ocr_parsed_json' => $parsed,
-            'ocr_confidence' => $parsed['confidence'],
-            'merchant_name' => $parsed['merchant_name'],
-            'receipt_date' => $parsed['date'],
-            'subtotal_cents' => $parsed['subtotal_cents'],
-            'tax_cents' => $parsed['tax_cents'],
-            'service_charge_cents' => $parsed['service_charge_cents'],
-            'rounding_cents' => $parsed['rounding_cents'],
-            'total_cents' => $parsed['total_cents'],
-        ]);
+        if (!$bill->receipt_image_path) {
+            return back()->with('error', 'No receipt to parse.');
+        }
+
+        $items = $this->parser->parse($bill->receipt_image_path);
         $bill->items()->delete();
-        foreach ($parsed['items'] as $idx => $item) {
-            $bill->items()->create([
+        foreach ($items as $item) {
+            BillItem::create([
+                'bill_id' => $bill->id,
                 'name' => $item['name'],
-                'quantity' => $item['quantity'] ?? 1,
-                'total_price_cents' => $item['total_cents'],
-                'sort_order' => $idx,
-                'source' => 'ocr',
+                'quantity' => $item['quantity'],
+                'unit_price_cents' => $item['unit_price_cents'],
+                'total_price_cents' => $item['total_price_cents'],
+                'is_fee' => $item['is_fee'] ?? false,
             ]);
         }
-        $this->audit->log('ocr_completed', $bill, metadata: ['confidence' => $parsed['confidence']]);
+        $this->audit->log('receipt_parsed', $bill);
 
-        return redirect()->route('bills.receipt.show', $bill);
+        return redirect()->route('bills.receipt.show', $bill)->with('success', 'Receipt parsed.');
     }
 
     public function saveItems(Bill $bill, Request $request): RedirectResponse
     {
+        $this->authorizeOrganizer($bill);
+
         if ($redirect = $this->rejectIfPublished($bill)) {
             return $redirect;
         }
 
-        $data = $request->validate([
-            'merchant_name' => 'nullable|string|max:120',
-            'receipt_date' => 'nullable|date',
-            'subtotal_cents' => 'required|integer|min:0',
-            'tax_cents' => 'integer|min:0',
-            'service_charge_cents' => 'integer|min:0',
-            'rounding_cents' => 'integer|min:0',
-            'total_cents' => 'required|integer|min:1',
-            'items' => 'array',
-            'items.*.name' => 'required|string|max:200',
-            'items.*.quantity' => 'numeric|min:0',
-            'items.*.total_price_cents' => 'required|integer|min:0',
+        $validated = $request->validate([
+            'items' => 'required|array',
+            'items.*.name' => 'required|string|max:255',
+            'items.*.quantity' => 'required|numeric|min:0.01',
+            'items.*.unit_price_cents' => 'required|integer|min:0',
+            'items.*.is_fee' => 'boolean',
         ]);
 
-        $bill->update([
-            'merchant_name' => $data['merchant_name'] ?? null,
-            'receipt_date' => $data['receipt_date'] ?? null,
-            'subtotal_cents' => $data['subtotal_cents'],
-            'tax_cents' => $data['tax_cents'] ?? 0,
+        $bill->items()->delete();
+        foreach ($validated['items'] as $item) {
+            BillItem::create([
+                'bill_id' => $bill->id,
+                'name' => $item['name'],
+                'quantity' => $item['quantity'],
+                'unit_price_cents' => $item['unit_price_cents'],
+                'total_price_cents' => (int) round($item['quantity'] * $item['unit_price_cents']),
+                'is_fee' => $item['is_fee'] ?? false,
+            ]);
+        }
+        $this->audit->log('receipt_items_saved', $bill);
+
+        return redirect()->route('bills.receipt.show', $bill)->with('success', 'Items saved.');
+    }
+
+    protected function billPayload(Bill $bill): array
+    {
+        return [
+            'public_token' => $bill->public_token,
+            'title' => $bill->title,
+            'total_cents' => $bill->total_cents,
+            'total' => Money::format($bill->total_cents),
+            'status' => $bill->status,
+            'split_mode' => $bill->split_mode,
+        ];
+    }
+
+    protected function authorizeOrganizer(Bill $bill): void
+    {
+        $sessionToken = session('organizer_token');
+        if (!$sessionToken || !hash_equals($bill->organizer_token, hash('sha256', $sessionToken))) {
+            abort(403, 'Unauthorized');
+        }
+    }
+}
             'service_charge_cents' => $data['service_charge_cents'] ?? 0,
             'rounding_cents' => $data['rounding_cents'] ?? 0,
             'total_cents' => $data['total_cents'],
@@ -135,6 +163,14 @@ class ReceiptController extends Controller
         $this->audit->log('items_reviewed', $bill);
 
         return redirect()->route('bills.split.edit', $bill);
+    }
+
+    protected function authorizeOrganizer(Bill $bill): void
+    {
+        $sessionToken = session('organizer_token');
+        if (!$sessionToken || !hash_equals($bill->organizer_token, hash('sha256', $sessionToken))) {
+            abort(403, 'Unauthorized');
+        }
     }
 
     private function billPayload(Bill $bill): array

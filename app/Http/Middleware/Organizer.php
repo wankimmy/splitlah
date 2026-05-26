@@ -1,0 +1,25 @@
+<?php
+
+namespace App\Http\Middleware;
+
+use Closure;
+use Illuminate\Http\Request;
+
+class Organizer
+{
+    public function handle(Request $request, Closure $next)
+    {
+        $sessionToken = session('organizer_token');
+        if (!$sessionToken) {
+            abort(403, 'Organizer authentication required.');
+        }
+
+        // For routes with a bill parameter, verify ownership
+        $bill = $request->route('bill');
+        if ($bill && !hash_equals($bill->organizer_token, hash('sha256', $sessionToken))) {
+            abort(403, 'Unauthorized');
+        }
+
+        return $next($request);
+    }
+}

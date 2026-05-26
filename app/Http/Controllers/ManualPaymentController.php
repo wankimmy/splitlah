@@ -15,6 +15,8 @@ class ManualPaymentController extends Controller
 
     public function store(Bill $bill, Participant $participant, Request $request): RedirectResponse
     {
+        $this->authorizeOrganizer($bill);
+
         if ($participant->bill_id !== $bill->id) {
             abort(404);
         }
@@ -41,8 +43,16 @@ class ManualPaymentController extends Controller
         ]);
 
         $participant->update(['status' => 'manual_paid', 'paid_at' => now()]);
-        $this->audit->log('manual_mark_paid', $participant->bill, $participant, $paymentRequest, metadata: $data);
+        $this->audit->log('manual_payment_confirmed', $bill, $participant, $paymentRequest);
 
-        return back()->with('success', 'Marked as paid manually.');
+        return back()->with('success', 'Payment confirmed.');
+    }
+
+    protected function authorizeOrganizer(Bill $bill): void
+    {
+        $sessionToken = session('organizer_token');
+        if (!$sessionToken || !hash_equals($bill->organizer_token, hash('sha256', $sessionToken))) {
+            abort(403, 'Unauthorized');
+        }
     }
 }

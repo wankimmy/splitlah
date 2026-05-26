@@ -16,7 +16,7 @@ class FiuuGateway
 
     public function generateOrderId(): string
     {
-        return 'SLH'.now()->format('Ymd').Str::upper(Str::random(6));
+        return 'SLH'.now()->format('Ymd').Str::upper(Str::random(12));
     }
 
     public function generateVcode(string $amount, string $orderId): string
@@ -28,12 +28,12 @@ class FiuuGateway
                 Log::error('FiuuGateway: Missing merchant_id or verify_key in config.');
                 throw new \RuntimeException('Fiuu configuration incomplete.');
             }
+
             return hash('sha512', $amount . $merchantId . $orderId . $verifyKey);
         } catch (\Throwable $e) {
             Log::error('FiuuGateway::generateVcode failed', [
                 'error' => $e->getMessage(),
                 'order_id' => $orderId,
-                // amount and keys are intentionally omitted
             ]);
             throw $e;
         }
@@ -45,7 +45,7 @@ class FiuuGateway
             $tranID = (string) ($payload['tranID'] ?? '');
             $orderid = (string) ($payload['orderid'] ?? '');
             $status = (string) ($payload['status'] ?? '');
-            $merchant = (string) ($payload['domain'] ?? config('services.fiuu.merchant_id'));
+            $domain = (string) ($payload['domain'] ?? config('services.fiuu.merchant_id'));
             $amount = (string) ($payload['amount'] ?? '');
             $currency = (string) ($payload['currency'] ?? '');
             $appcode = (string) ($payload['appcode'] ?? '');
@@ -54,26 +54,83 @@ class FiuuGateway
 
             $secretKey = config('services.fiuu.secret_key');
             if (empty($secretKey)) {
-                Log::error('FiuuGateway: Missing secret_key in config.');
+                Log::error('FiuuGateway::verifySkey: Missing secret_key in config.');
                 return false;
             }
 
-            $preSkey = hash('sha512', $tranID . $orderid . $status . $merchant . $amount . $currency);
-            $expected = hash('sha512', $paydate . $merchant . $preSkey . $appcode . $secretKey);
+            $preSkey = hash('sha512', $tranID . $orderid . $status . $domain . $amount . $currency);
+            $expected = hash('sha512', $paydate . $domain . $preSkey . $appcode . $secretKey);
 
             return hash_equals($expected, $skey);
         } catch (\Throwable $e) {
             Log::error('FiuuGateway::verifySkey failed', [
                 'error' => $e->getMessage(),
-                'order_id' => $payload['orderid'] ?? 'unknown',
-                // payload values are intentionally omitted to avoid leaking secrets
+                'orderid' => $payload['orderid'] ?? 'unknown',
             ]);
             return false;
         }
     }
 
-    public function mapStatus(string $status): string
+    /**
+     * Verify webhook signature using HMAC-SHA256 with the merchant key.
+     * Fiuu sends a signature in the X-Signature header or as a skey parameter.
+     */
+    public function verifyWebhookSignature(array $payload): bool
     {
-        // ... (unchanged)
+        // Prefer X-Signature header if available; fallback to skey verification (legacy)
+        $signature = request()->header('X-Signature');
+        if (!$signature) {
+            // Fallback to skey verification (legacy)
+            return $this->verifySkey($payload);
+        }
+
+        $merchantKey = config('services.fiuu.merchant_key');
+        if (empty($merchantKey)) {
+            Log::error('FiuuGateway::verifyWebhookSignature missing merchant_key');
+            return false;
+        }
+
+        // Build the string to sign: concatenate key parameters sorted alphabetically
+        $data = $this->buildSignatureString($payload);
+        $computed = hash_hmac('sha256', $data, $merchantKey);
+
+        return hash_equals($computed, $signature);
+    }
+
+    protected function buildSignatureString(array $payload): string
+    {
+        // Remove signature field itself
+        unset($payload['skey'], $payload['signature']);
+        ksort($payload);
+        $parts = [];
+        foreach ($payload as $key => $value) {
+            $parts[] = $key . '=' . $value;
+        }
+        return implode('&', $parts);
+    }
+
+    public function buildHostedPayload(Participant $participant, string $orderId): array
+    {
+        $amount = Money::toDecimal($participant->amount_cents);
+        $vcode = $this->generateVcode($amount, $orderId);
+
+        return [
+            'merchant_id' => config('services.fiuu.merchant_id'),
+            'order_id' => $orderId,
+            'amount' => $amount,
+            'currency' => 'MYR',
+            'vcode' => $vcode,
+            'bill_name' => $participant->bill->title,
+            'bill_email' => config('services.fiuu.merchant_email'),
+            'bill_mobile' => '',
+            'bill_desc' => 'Payment for ' . $participant->name,
+            'return_url' => route('fiuu.return'),
+            'callback_url' => route('fiuu.callback'),
+        ];
+    }
+
+    public function getHostedPaymentUrl(): string
+    {
+        return config('services.fiuu.hosted_url', 'https://sandbox.fiuu.com/payment');
     }
 }

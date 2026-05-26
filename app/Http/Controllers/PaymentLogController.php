@@ -12,6 +12,8 @@ class PaymentLogController extends Controller
 {
     public function index(Bill $bill): Response
     {
+        $this->authorizeOrganizer($bill);
+
         $bill->load(['paymentRequests.participant']);
 
         $paymentRequests = $bill->paymentRequests()
@@ -44,10 +46,25 @@ class PaymentLogController extends Controller
             return $notifications->isEmpty() ? [$requestLog] : $notifications;
         })->flatten(1);
 
-        return Inertia::render('Bills/Payments', [
-            'bill' => ['public_token' => $bill->public_token, 'title' => $bill->title],
+        return Inertia::render('PaymentLogs/Index', [
+            'bill' => [
+                'public_token' => $bill->public_token,
+                'title' => $bill->title,
+            ],
             'logs' => $logs,
-            'paginator' => $paymentRequests->toArray(),
+            'pagination' => [
+                'current_page' => $paymentRequests->currentPage(),
+                'last_page' => $paymentRequests->lastPage(),
+                'total' => $paymentRequests->total(),
+            ],
         ]);
+    }
+
+    protected function authorizeOrganizer(Bill $bill): void
+    {
+        $sessionToken = session('organizer_token');
+        if (!$sessionToken || !hash_equals($bill->organizer_token, hash('sha256', $sessionToken))) {
+            abort(403, 'Unauthorized');
+        }
     }
 }

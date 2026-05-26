@@ -23,6 +23,8 @@ class SplitController extends Controller
 
     public function edit(Bill $bill): Response|RedirectResponse
     {
+        $this->authorizeOrganizer($bill);
+
         if ($redirect = $this->rejectIfPublished($bill)) {
             return $redirect;
         }
@@ -43,41 +45,56 @@ class SplitController extends Controller
                 'id' => $p->id,
                 'name' => $p->name,
                 'amount_cents' => $p->amount_cents,
-                'percentage_share' => $p->percentage_share,
+                'amount' => Money::format($p->amount_cents),
+                'status' => $p->status,
+                'token' => $p->token,
             ]),
             'items' => $bill->items->map(fn ($i) => [
                 'id' => $i->id,
                 'name' => $i->name,
+                'quantity' => (float) $i->quantity,
+                'unit_price_cents' => $i->unit_price_cents,
                 'total_price_cents' => $i->total_price_cents,
                 'total' => Money::format($i->total_price_cents),
-                'assigned_participant_ids' => $i->assignments->pluck('participant_id'),
+                'is_fee' => $i->is_fee,
             ]),
         ]);
     }
 
     public function update(Bill $bill, Request $request): RedirectResponse
     {
+        $this->authorizeOrganizer($bill);
+
         if ($redirect = $this->rejectIfPublished($bill)) {
             return $redirect;
         }
 
-        $data = $request->validate([
-            'split_mode' => 'required|in:equal,manual,itemized,percentage',
-            'tax_distribution' => 'nullable|in:equal,proportional',
-            'rounding_mode' => 'nullable|in:exact,nearest_005,nearest_010,nearest_100',
-            'manual_amounts' => 'array',
-            'percentages' => 'array',
-            'assignments' => 'array',
+        $validated = $request->validate([
+            'participants' => 'required|array',
+            'participants.*.id' => 'required|integer|exists:participants,id',
+            'participants.*.amount_cents' => 'required|integer|min:0',
         ]);
 
-        $bill->update([
-            'split_mode' => $data['split_mode'],
-            'tax_distribution' => $data['tax_distribution'] ?? 'proportional',
-            'rounding_mode' => $data['rounding_mode'] ?? 'exact',
-        ]);
+        DB::transaction(function () use ($bill, $validated) {
+            foreach ($validated['participants'] as $p) {
+                Participant::where('id', $p['id'])->where('bill_id', $bill->id)->update([
+                    'amount_cents' => $p['amount_cents'],
+                ]);
+            }
+            $this->audit->log('splits_updated', $bill);
+        });
 
-        $participants = $bill->participants;
-        $results = match ($data['split_mode']) {
+        return redirect()->route('bills.splits.edit', $bill)->with('success', 'Splits updated.');
+    }
+
+    protected function authorizeOrganizer(Bill $bill): void
+    {
+        $sessionToken = session('organizer_token');
+        if (!$sessionToken || !hash_equals($bill->organizer_token, hash('sha256', $sessionToken))) {
+            abort(403, 'Unauthorized');
+        }
+    }
+}
             'equal' => $this->splitter->calculateEqual($bill, $participants),
             'manual' => $this->splitter->calculateManual($bill, $data['manual_amounts'] ?? []),
             'percentage' => $this->splitter->calculatePercentage($bill, $data['percentages'] ?? []),
@@ -154,5 +171,13 @@ class SplitController extends Controller
         }
 
         return redirect()->route('bills.show', $bill)->with('success', 'Split saved.');
+    }
+
+    protected function authorizeOrganizer(Bill $bill): void
+    {
+        $sessionToken = session('organizer_token');
+        if (!$sessionToken || !hash_equals($bill->organizer_token, hash('sha256', $sessionToken))) {
+            abort(403, 'Unauthorized');
+        }
     }
 }
