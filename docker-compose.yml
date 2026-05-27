@@ -15,7 +15,7 @@ services:
     networks:
       - splitlah_net
     depends_on:
-      mysql:
+      mariadb:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "php-fpm-healthcheck"]
@@ -24,25 +24,57 @@ services:
       retries: 3
       start_period: 40s
 
-  mysql:
-    image: mysql:8.0
-    container_name: splitlah_mysql
+  nginx:
+    image: nginx:alpine
+    container_name: splitlah_nginx
+    restart: unless-stopped
+    ports:
+      - "${NGINX_PORT:-8000}:80"
+    volumes:
+      - .:/var/www/html:ro
+      - ./docker/nginx:/etc/nginx/conf.d:ro
+    networks:
+      - splitlah_net
+    depends_on:
+      app:
+        condition: service_healthy
+
+  mariadb:
+    image: mariadb:11
+    container_name: splitlah_mariadb
     restart: unless-stopped
     environment:
-      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:-root}
-      MYSQL_DATABASE: ${DB_DATABASE:-splitlah}
-      MYSQL_USER: ${DB_USERNAME:-splitlah}
-      MYSQL_PASSWORD: ${DB_PASSWORD:-splitlah}
+      MARIADB_ROOT_PASSWORD: ${DB_ROOT_PASSWORD}
+      MARIADB_DATABASE: ${DB_DATABASE}
+      MARIADB_USER: ${DB_USERNAME}
+      MARIADB_PASSWORD: ${DB_PASSWORD}
     volumes:
-      - mysql_data:/var/lib/mysql
+      - mariadb_data:/var/lib/mysql
     networks:
       - splitlah_net
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
       interval: 10s
       timeout: 5s
       retries: 5
       start_period: 30s
+
+  # Dev-only — do NOT expose phpMyAdmin in production without auth
+  phpmyadmin:
+    image: phpmyadmin:5.2.2
+    container_name: splitlah_phpmyadmin
+    restart: unless-stopped
+    environment:
+      PMA_HOST: mariadb
+      PMA_PORT: 3306
+      UPLOAD_LIMIT: 64M
+    ports:
+      - "127.0.0.1:${PMA_PORT:-8080}:80"
+    networks:
+      - splitlah_net
+    depends_on:
+      mariadb:
+        condition: service_healthy
 
 networks:
   splitlah_net:
@@ -51,4 +83,4 @@ networks:
 volumes:
   vendor_data:
   node_modules_data:
-  mysql_data:
+  mariadb_data:

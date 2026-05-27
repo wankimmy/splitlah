@@ -28,15 +28,19 @@ RUN apk add --no-cache \
     libzip-dev \
     oniguruma-dev \
     libxml2-dev \
+    netcat-openbsd \
     && docker-php-ext-install pdo_mysql mbstring zip exif pcntl bcmath gd
+
+# Configure php-fpm status/ping endpoints for monitoring
+RUN echo 'pm.status_path = /status' >> /usr/local/etc/php-fpm.d/www.conf \
+    && echo 'ping.path = /ping' >> /usr/local/etc/php-fpm.d/www.conf
 
 RUN adduser -D -s /bin/sh appuser
 
 COPY --from=builder /var/www/html /var/www/html
 
-# Add healthcheck script
-RUN echo '#!/bin/sh\nphp -r "echo 1;" || exit 1' > /usr/local/bin/php-fpm-healthcheck \
-    && chmod +x /usr/local/bin/php-fpm-healthcheck
+# Healthcheck — verifies php-fpm is listening on port 9000
+RUN printf '#!/bin/sh\nnc -z 127.0.0.1 9000 || exit 1\n' > /usr/local/bin/php-fpm-healthcheck && chmod +x /usr/local/bin/php-fpm-healthcheck
 
 WORKDIR /var/www/html
 
