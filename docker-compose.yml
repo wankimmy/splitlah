@@ -1,3 +1,54 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: splitlah_app
+    restart: unless-stopped
+    working_dir: /var/www/html
     volumes:
-      - splitlah_mysql:/var/lib/mysql
+      - .:/var/www/html
+      - vendor_data:/var/www/html/vendor
+      - node_modules_data:/var/www/html/node_modules
+    env_file:
+      - .env
+    networks:
+      - splitlah_net
+    depends_on:
+      mysql:
+        condition: service_healthy
     healthcheck:
+      test: ["CMD", "php-fpm-healthcheck"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  mysql:
+    image: mysql:8.0
+    container_name: splitlah_mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:-root}
+      MYSQL_DATABASE: ${DB_DATABASE:-splitlah}
+      MYSQL_USER: ${DB_USERNAME:-splitlah}
+      MYSQL_PASSWORD: ${DB_PASSWORD:-splitlah}
+    volumes:
+      - mysql_data:/var/lib/mysql
+    networks:
+      - splitlah_net
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+networks:
+  splitlah_net:
+    driver: bridge
+
+volumes:
+  vendor_data:
+  node_modules_data:
+  mysql_data:

@@ -11,7 +11,7 @@ class Organizer
     {
         $sessionToken = session('organizer_token');
         if (!$sessionToken) {
-            abort(403, 'Organizer authentication required.');
+            return redirect()->route('organizer.login');
         }
 
         // For routes with a bill parameter, verify ownership

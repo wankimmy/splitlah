@@ -26,32 +26,20 @@ Route::get('/fiuu/return', [FiuuPaymentController::class, 'return'])->name('fiuu
 
 // Organizer authentication routes
 Route::get('/organizer/login', [OrganizerAuthController::class, 'showLoginForm'])->name('organizer.login');
-Route::post('/organizer/login', [OrganizerAuthController::class, 'login'])->name('organizer.login.post');
+Route::post('/organizer/login', [OrganizerAuthController::class, 'login'])->name('organizer.login.store');
 Route::post('/organizer/logout', [OrganizerAuthController::class, 'logout'])->name('organizer.logout');
 
-// Organizer routes (require authentication)
-Route::middleware(['auth:organizer'])->group(function () {
-    // Bill CRUD
+// Organizer routes (authenticated via session)
+Route::middleware(['organizer'])->group(function () {
     Route::get('/bills/create', [BillController::class, 'create'])->name('bills.create');
     Route::post('/bills', [BillController::class, 'store'])->name('bills.store');
     Route::get('/bills/{bill}', [BillController::class, 'show'])->name('bills.show');
-    Route::post('/bills/{bill}/publish', [BillController::class, 'publish'])->name('bills.publish');
-    Route::get('/bills/{bill}/edit', [BillController::class, 'edit'])->name('bills.edit');
-    Route::put('/bills/{bill}', [BillController::class, 'update'])->name('bills.update');
-    Route::delete('/bills/{bill}', [BillController::class, 'destroy'])->name('bills.destroy');
-
-    // Receipt
-    Route::post('/bills/{bill}/receipt', [ReceiptController::class, 'store'])->name('receipt.store');
-    Route::get('/bills/{bill}/receipt/items', [ReceiptController::class, 'items'])->name('receipt.items');
-
-    // Splits
-    Route::get('/bills/{bill}/splits', [SplitController::class, 'index'])->name('splits.index');
-    Route::post('/bills/{bill}/splits', [SplitController::class, 'store'])->name('splits.store');
-    Route::put('/bills/{bill}/splits/{split}', [SplitController::class, 'update'])->name('splits.update');
-
-    // Manual payment confirmation
-    Route::post('/manual-payment/confirm', [ManualPaymentController::class, 'store'])->name('manual-payment.confirm');
-
-    // Payment logs
-    Route::get('/payment-logs', [PaymentLogController::class, 'index'])->name('payment-logs.index');
+    Route::get('/bills/{bill}/receipt', [ReceiptController::class, 'show'])->name('bills.receipt');
+    Route::post('/bills/{bill}/receipt', [ReceiptController::class, 'store'])->name('bills.receipt.store');
+    Route::post('/bills/{bill}/receipt/parse', [ReceiptController::class, 'parse'])->name('receipts.parse');
+    Route::get('/bills/{bill}/receipt/image', [ReceiptController::class, 'image'])->name('receipts.image');
+    Route::get('/bills/{bill}/splits', [SplitController::class, 'show'])->name('bills.splits');
+    Route::post('/bills/{bill}/splits', [SplitController::class, 'store'])->name('bills.splits.store');
+    Route::post('/bills/{bill}/participants/{participant}/manual-payment', [ManualPaymentController::class, 'store'])->name('bills.manual-payment.store');
+    Route::get('/bills/{bill}/payment-logs', [PaymentLogController::class, 'index'])->name('bills.payment-logs');
 });

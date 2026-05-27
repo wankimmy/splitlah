@@ -24,7 +24,7 @@ class OrganizerAuthTest extends TestCase
             'organizer_token' => hash('sha256', $token),
         ]);
 
-        $response = $this->post(route('organizer.login.post'), ['token' => $token]);
+        $response = $this->post(route('organizer.login.store'), ['token' => $token]);
 
         $response->assertRedirect(route('bills.show', $bill));
         $this->assertEquals($token, session('organizer_token'));
@@ -32,7 +32,7 @@ class OrganizerAuthTest extends TestCase
 
     public function test_invalid_token_login_fails_with_error()
     {
-        $response = $this->post(route('organizer.login.post'), ['token' => 'invalid-token-64-chars-long-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx']);
+        $response = $this->post(route('organizer.login.store'), ['token' => 'invalid-token-64-chars-long-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx']);
 
         $response->assertSessionHasErrors('token');
         $this->assertNull(session('organizer_token'));
@@ -46,7 +46,7 @@ class OrganizerAuthTest extends TestCase
         ]);
 
         // Login first
-        $this->post(route('organizer.login.post'), ['token' => $token]);
+        $this->post(route('organizer.login.store'), ['token' => $token]);
 
         $response = $this->post(route('organizer.logout'));
 
